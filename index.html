@@ -6,7 +6,7 @@
   <title>Wage Step Grid</title>
   <style>
     * { box-sizing: border-box; }
-    body { font-family: Arial, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; }
+    body { font-family: Arial, sans-serif; max-width: 950px; margin: 0 auto; padding: 20px; }
     .box { border: 1px solid #ddd; border-radius: 12px; padding: 14px; margin: 12px 0; }
     label { display:block; font-weight:700; margin-top:10px; }
     input, select { width: 100%; max-width: 360px; padding: 10px; margin-top: 6px; }
@@ -21,55 +21,61 @@
 </head>
 <body>
 
-  <h1>Wage Calculator</h1>
-  <div class="small">Enter your current pay and years of service. This is an estimate.</div>
+<h1>Wage Calculator</h1>
+<div class="small">Enter your current pay and years of service. This is an estimate.</div>
 
-  <div class="box">
-    <div class="row">
-      <div>
-        <label>Current hourly pay</label>
-        <input id="currentPay" type="number" step="0.001" placeholder="Example: 74.722" />
-      </div>
-      <div>
-        <label>Years of service (2025)</label>
-        <input id="years" type="number" step="1" min="0" placeholder="Example: 10" />
-      </div>
-      <div>
-        <label>ATB schedule</label>
-        <select id="schedule">
-          <option value="union">Union</option>
-          <option value="employer">Employer</option>
-        </select>
-      </div>
+<div class="box">
+  <div class="row">
+    <div>
+      <label>Current hourly pay (as of 10/1/2025)</label>
+      <input id="currentPay" type="number" step="0.001" placeholder="Example: 74.722" />
+    </div>
+    <div>
+      <label>Years of service (at 10/1/2025)</label>
+      <input id="years" type="number" step="1" min="0" placeholder="Example: 10" />
+    </div>
+    <div>
+      <label>ATB schedule</label>
+      <select id="schedule">
+        <option value="union">Union</option>
+        <option value="employer">Employer</option>
+      </select>
     </div>
   </div>
-
-  <div class="box">
-    <div><b>Grid step:</b> <span class="pill" id="stepLabel">—</span></div>
-    <div class="small"><b>Inexp base (calculated):</b> <span id="basePay">—</span></div>
+  <div class="small" style="margin-top:10px;">
+    Step/years are advanced on <b>10/1 each year</b> in this calculator.
   </div>
+</div>
 
-  <div class="box">
-    <h3 style="margin:0 0 6px;">Projection</h3>
-    <div class="small">No “ATB-only % from start”. Just dates, ATB %, and hourly rate.</div>
-    <table>
-      <thead>
-        <tr>
-          <th>Date</th>
-          <th>ATB %</th>
-          <th>Hourly rate</th>
-        </tr>
-      </thead>
-      <tbody id="rows"></tbody>
-    </table>
-  </div>
+<div class="box">
+  <div><b>Grid step (10/1/2025):</b> <span class="pill" id="stepLabel">—</span></div>
+  <div class="small"><b>Inexp base (calculated):</b> <span id="basePay">—</span></div>
+</div>
+
+<div class="box">
+  <h3 style="margin:0 0 6px;">Projection (Step + ATB)</h3>
+  <div class="small">This table applies step changes (when years advance) and compounds ATB raises.</div>
+  <table>
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Years</th>
+        <th>Grid step</th>
+        <th>ATB %</th>
+        <th>Hourly rate after change</th>
+        <th>Total % from start</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+</div>
 
 <script>
   // Your exact step rules:
   // 0=Inexp
-  // 1->1, 2->2, 3->3, 4->4, 5->5, 6->6
+  // 1->1,2->2,3->3,4->4,5->5,6->6
   // 7->6
-  // 8->8, 9->8
+  // 8->8,9->8
   // 10-14->10
   // 15-19->15
   // 20-24->20
@@ -85,7 +91,7 @@
     return "25 yr";
   }
 
-  // Step factors (multipliers vs Inexp). Adjust anytime if you update the grid.
+  // Step factors (multipliers vs Inexp)
   const STEP_FACTOR = {
     "Inexp": 1.000,
     "1 yr": 1.145,
@@ -121,45 +127,82 @@
     if (!isFinite(n)) return "—";
     return n.toLocaleString(undefined, { style: "currency", currency: "USD" });
   }
+  function pct(n) { return (n * 100).toFixed(2) + "%"; }
 
-  function pct(n) {
-    return (n * 100).toFixed(2) + "%";
+  function parseMDY(s) {
+    const [m,d,y] = s.split("/").map(Number);
+    return new Date(y, m-1, d);
+  }
+
+  // Years advance on 10/1 each year (based on your request)
+  function yearsAtDate(yearsAt_10_1_2025, dt) {
+    const y0 = yearsAt_10_1_2025;
+    const d2026 = new Date(2026, 9, 1); // 10/1/2026
+    const d2027 = new Date(2027, 9, 1); // 10/1/2027
+    const d2028 = new Date(2028, 9, 1); // 10/1/2028
+    let add = 0;
+    if (dt >= d2026) add = 1;
+    if (dt >= d2027) add = 2;
+    if (dt >= d2028) add = 3;
+    return y0 + add;
   }
 
   function recalc() {
     const currentPay = parseFloat(document.getElementById("currentPay").value);
-    const years = parseInt(document.getElementById("years").value, 10);
+    const years0 = parseInt(document.getElementById("years").value, 10);
     const scheduleName = document.getElementById("schedule").value;
 
     const rows = document.getElementById("rows");
     rows.innerHTML = "";
 
-    if (!isFinite(currentPay) || !isFinite(years)) {
+    if (!isFinite(currentPay) || !isFinite(years0)) {
       document.getElementById("stepLabel").textContent = "—";
       document.getElementById("basePay").textContent = "—";
       return;
     }
 
-    const step = stepFromYears(years);
-    const factor = STEP_FACTOR[step] ?? 1.0;
+    const step0 = stepFromYears(years0);
+    const factor0 = STEP_FACTOR[step0] ?? 1.0;
 
-    // Work backward: base(Inexp) = currentPay / stepFactor
-    const base = currentPay / factor;
+    // Work backward: base(Inexp) at 10/1/2025
+    const base = currentPay / factor0;
 
-    document.getElementById("stepLabel").textContent = step;
+    document.getElementById("stepLabel").textContent = step0;
     document.getElementById("basePay").textContent = money(base);
 
     const schedule = scheduleName === "union" ? UNION : EMPLOYER;
 
-    let rate = currentPay;
+    // Keep cumulative ATB multiplier (compounding)
+    let atbMult = 1.0;
+
+    // Starting rate (sanity)
+    const startRate = currentPay;
+
     schedule.forEach(item => {
-      rate = rate * (1 + item.pct);
+      const dt = parseMDY(item.date);
+
+      // Step/years update happens as time passes
+      const yAt = yearsAtDate(years0, dt);
+      const step = stepFromYears(yAt);
+      const stepFactor = STEP_FACTOR[step] ?? 1.0;
+
+      // Rate BEFORE this ATB: base * stepFactor * prior ATB multipliers
+      let rateBeforeATB = base * stepFactor * atbMult;
+
+      // Apply this ATB
+      atbMult = atbMult * (1 + item.pct);
+      let rateAfter = rateBeforeATB * (1 + item.pct);
+
+      const totalFromStart = (rateAfter / startRate) - 1;
 
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td>${item.date}</td>
+        <td>${yAt}</td>
+        <td>${step}</td>
         <td>${pct(item.pct)}</td>
-        <td>${money(rate)}</td>
+        <td>${money(rateAfter)}</td>
+        <td>${pct(totalFromStart)}</td>
       `;
       rows.appendChild(tr);
     });
